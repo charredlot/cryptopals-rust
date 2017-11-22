@@ -22,21 +22,21 @@ pub const PARAM_G: &'static str =
             "878480e99041be601a62166ca6894bdd41a7054ec89f756ba",
             "9fc95302291");
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Params {
     pub q: Mpz,
     pub g: Mpz,
     pub p: Mpz,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct PublicKey {
     // pub for debugging
     pub y: Mpz,
     pub params: Params,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct PrivateKey {
     // pub for debugging
     pub x: Mpz,
@@ -44,10 +44,12 @@ pub struct PrivateKey {
     pub params: Params,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Signature {
     pub r: Mpz,
     pub s: Mpz,
+    // bad to put this here, but do it for our debugging
+    pub k: Mpz,
 }
 
 impl Params {
@@ -63,16 +65,23 @@ impl Params {
 impl PrivateKey {
     pub fn sha1_sign(&self, msg: &[u8]) -> Signature {
         let q = &self.params.q;
-        let g = &self.params.g;
-        let p = &self.params.p;
-        let zero = Mpz::zero();
+        let one = Mpz::one();
 
         let k = loop {
-            let candidate = randomish_mpz_lt(&q);
-            if candidate > Mpz::one() {
+            let candidate = randomish_mpz_lt(q);
+            if candidate > one {
                 break candidate;
             }
         };
+
+        self.sha1_sign_with_k(msg, &k)
+    }
+
+    pub fn sha1_sign_with_k(&self, msg: &[u8], k: &Mpz) -> Signature {
+        let q = &self.params.q;
+        let g = &self.params.g;
+        let p = &self.params.p;
+        let zero = Mpz::zero();
 
         let r = (g.powm(&k, p)).modulus(q);
         if r == zero {
@@ -91,7 +100,7 @@ impl PrivateKey {
             return self.sha1_sign(msg);
         }
 
-        Signature{r: r, s: s}
+        Signature{r: r, s: s, k: k.clone()}
     }
 }
 
@@ -118,6 +127,23 @@ impl PublicKey {
         };
 
         v == signature.r
+    }
+}
+
+impl Signature {
+    pub fn sha1_k_to_key(&self,
+                         params: &Params,
+                         msg: &[u8],
+                         k: &Mpz) -> PrivateKey {
+       let inv_r = self.r.invert(&params.q).unwrap();
+       let top = (&self.s * k) - bytes_to_mpz(&sha1::digest(msg));
+       let x = (top * inv_r).modulus(&params.q);
+       let y = (&params.g).powm(&x, &params.p);
+       PrivateKey{
+           x: x,
+           y: y,
+           params: params.clone(),
+       }
     }
 }
 
