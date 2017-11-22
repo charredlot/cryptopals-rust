@@ -66,9 +66,15 @@ pub fn bytes_to_mpz(bytes: &[u8]) -> Mpz {
 
 // random-ish num less than the max
 pub fn randomish_mpz_lt(max: &Mpz) -> Mpz {
-    // TODO: ehhhhh this is a kludge, just make sure it's less than max
-    let len = (max.bit_length() / 8) - 1;
-    bytes_to_mpz(&rand_bytes(len))
+    let len = (max.bit_length() + 7) / 8;
+    let zero = Mpz::zero();
+    loop {
+        // TODO: we could truncate the top bits until it's less than
+        let candidate = bytes_to_mpz(&rand_bytes(len));
+        if (candidate != zero) && (&candidate < max) {
+            return candidate;
+        }
+    }
 }
 
 pub fn randomish_prime(bit_len: usize) -> Mpz {
