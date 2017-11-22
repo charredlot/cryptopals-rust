@@ -4,6 +4,7 @@ pub mod base64;
 pub mod bytes;
 pub mod charfreq;
 pub mod dh;
+pub mod dsa;
 pub mod hex;
 pub mod mac;
 pub mod mac_test;
