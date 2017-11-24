@@ -44,7 +44,7 @@ pub struct PrivateKey {
     pub params: Params,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Signature {
     pub r: Mpz,
     pub s: Mpz,

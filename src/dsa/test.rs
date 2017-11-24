@@ -1,10 +1,14 @@
 extern crate gmp;
 
+use std::fs::File;
+use std::io::BufReader;
+use std::io::prelude::*;
+
 use self::gmp::mpz::Mpz;
-use dsa::{new_keypair, PublicKey, Params, Signature};
-use hex::bytes_to_hex;
+use dsa::{new_keypair, PublicKey, PrivateKey, Params, Signature};
+use hex::{bytes_to_hex, hex_to_bytes};
 use sha1;
-use util::mpz_bytes;
+use util::{mpz_bytes, bytes_to_mpz};
 
 fn sign_test() {
     let msg = "beep boop".as_bytes();
@@ -75,10 +79,149 @@ fn nonce_to_key_test1() {
     panic!("didn't find private key from k");
 }
 
+fn repeated_nonce_test() {
+    let y_str = concat!("2d026f4bf30195ede3a088da85e398ef869611d0f68f07",
+                        "13d51c9c1a3a26c95105d915e2d8cdf26d056b86b8a7b8",
+                        "5519b1c23cc3ecdc6062650462e3063bd179c2a6581519",
+                        "f674a61f1d89a1fff27171ebc1b93d4dc57bceb7ae2430",
+                        "f98a6a4d83d8279ee65d71c1203d2c96d65ebbf7cce9d3",
+                        "2971c3de5084cce04a2e147821");
+    let y = Mpz::from_str_radix(y_str, 16).unwrap();
+
+    let f = File::open("data/6.44.txt").unwrap();
+    let buffered = BufReader::new(&f);
+
+    #[derive(Debug)]
+    enum Parse {
+        Msg,
+        S,
+        R,
+        M,
+    }
+
+    #[derive(Debug)]
+    struct SignedMsg {
+        msg: String,
+        signature: Signature,
+        hash: Mpz,
+    }
+
+    impl SignedMsg {
+        fn new() -> SignedMsg {
+            SignedMsg{
+                msg: String::from(""),
+                signature: Signature{
+                    r: Mpz::zero(),
+                    s: Mpz::zero(),
+                    k: Mpz::zero(),
+                },
+                hash: Mpz::zero(),
+            }
+        }
+    }
+
+    fn strip_prefix(prefix: &'static str, mut s: String) -> String {
+        assert!(s.starts_with(prefix));
+        s.drain(..prefix.len());
+        s
+    }
+
+    let mut curr = SignedMsg::new();
+    let mut msgs: Vec<SignedMsg> = Vec::new();
+    let mut state = Parse::Msg;
+    for rline in buffered.lines() {
+        let line = rline.unwrap();
+        match state {
+            Parse::Msg => {
+                curr.msg = strip_prefix("msg: ", line);
+                state = Parse::S;
+            },
+            Parse::S => {
+                let res = strip_prefix("s: ", line);
+                curr.signature.s = Mpz::from_str_radix(&res, 10).unwrap();
+                state = Parse::R;
+            },
+            Parse::R => {
+                let res = strip_prefix("r: ", line);
+                curr.signature.r = Mpz::from_str_radix(&res, 10).unwrap();
+                state = Parse::M;
+            },
+            Parse::M => {
+                let res = strip_prefix("m: ", line);
+                let hash = hex_to_bytes(&res);
+                assert_eq!(hash, sha1::digest(curr.msg.as_bytes()));
+
+                curr.hash = bytes_to_mpz(&hash);
+                msgs.push(curr);
+                // need to do this here so borrow checker knows
+                curr = SignedMsg::new();
+                state = Parse::Msg;
+            },
+        }
+    }
+
+    // s1 = k^-1 (H1 + xr) mod q
+    //
+    // x is the private key, so it's the same for all msgs
+    // k is the same nonce for this test, q is the same param
+    // r = (g^k mod p) mod q, so r is the same since it only depends on k
+    // and the parameters g, p, q
+    //
+    // s1 * k - H1 = x * r mod q
+    // s2 * k - H2 = x * r mod q
+    // => (s1 - s2) * k = H1 - H2 mod q
+    // => k = (H1 - H2) / (s1 - s2) mod q
+    let params = Params::default();
+    let q = &params.q;
+    let priv_key = {
+        let mut candidate_key: Option<PrivateKey> = None;
+        'outer: for (i, msg) in msgs.iter().enumerate() {
+            let guess_signature = msg.signature.clone();
+            for (j, other_msg) in msgs.iter().enumerate() {
+                if i == j {
+                    // TODO: maybe some better way to do this?
+                    continue;
+                }
+
+                // r is derived from the g, p, q params and k, so if it's the
+                // same k it's the same r
+                if msg.signature.r != other_msg.signature.r {
+                    continue;
+                }
+
+                let k = {
+                    let top = (&msg.hash - &other_msg.hash).modulus(&q);
+                    let bottom = &msg.signature.s - &other_msg.signature.s;
+                    (top * bottom.invert(&q).unwrap()).modulus(&q)
+                };
+
+                let guess_key =
+                    guess_signature.sha1_k_to_key(&params,
+                                                  msg.msg.as_bytes(),
+                                                  &k);
+                let guess_y = (&params.g).powm(&guess_key.x, &params.p);
+                if guess_y == y {
+                    candidate_key = Some(guess_key);
+                    break 'outer;
+                }
+            }
+        }
+        match candidate_key {
+            Some(key) => key,
+            None => panic!("couldn't find repeated nonce (k)"),
+        }
+    };
+    assert_eq!("ca8f6f7c66fa362d40760d135b763eb8527d3d52",
+               bytes_to_hex(
+                   &sha1::digest(
+                       bytes_to_hex(&mpz_bytes(&priv_key.x)).as_bytes())));
+}
+
 pub fn dsa_test() {
     println!("Starting DSA tests");
     sign_test();
     nonce_to_key_test0();
     nonce_to_key_test1();
+    repeated_nonce_test();
     println!("Finished DSA tests");
 }
