@@ -217,11 +217,49 @@ fn repeated_nonce_test() {
                        bytes_to_hex(&mpz_bytes(&priv_key.x)).as_bytes())));
 }
 
+fn bad_parameter_test() {
+    // g = 0 => r = g ^ k mod q mod p = 0
+    // also, signature will always validate since it's
+    // v = g^u1 * y^u2 mod p mod q = 0 = r
+    // also, we check for r == 0 so we can't sign with g == 0
+
+    let (mut pub_key, _) = new_keypair();
+
+    // set g = (p + 1) mod p = 1 mod p
+    pub_key.params = {
+        let mut params = Params::default();
+        params.g = &params.p + &Mpz::one();
+        params
+    };
+
+    // verify is:
+    // r === (g^u1 * g^u2 mod p) mod q
+    // g = 1 means we can ignore the g^u1 term
+    // r = y^(r / s) mod p mod q
+    //
+    // if we set r = y^z
+    // y^z = y^(y^z / s)
+    // z = y^z / s
+    // s = y^z * z^-1
+    let z = Mpz::from_str_radix("97", 10).unwrap();
+    let yz = pub_key.y.powm(&z, &pub_key.params.p)
+                      .modulus(&pub_key.params.q);
+    let signature = Signature{
+        r: yz.clone(),
+        s: (yz * z.invert(&pub_key.params.q).unwrap())
+            .modulus(&pub_key.params.q),
+        k: Mpz::zero(),
+    };
+    assert!(pub_key.sha1_verify("Hello, world".as_bytes(), &signature));
+    assert!(pub_key.sha1_verify("Goodbye, world".as_bytes(), &signature));
+}
+
 pub fn dsa_test() {
     println!("Starting DSA tests");
     sign_test();
     nonce_to_key_test0();
     nonce_to_key_test1();
     repeated_nonce_test();
+    bad_parameter_test();
     println!("Finished DSA tests");
 }
