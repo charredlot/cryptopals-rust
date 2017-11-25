@@ -133,6 +133,11 @@ pub fn new_keypair(bit_len: usize) -> (PublicKey, PrivateKey) {
         // roughly half the bit len should end with bit_len n
         let p = randomish_prime(bit_len / 2);
         let q = randomish_prime(bit_len / 2);
+
+        if p == q {
+            continue;
+        }
+
         let n = &p * &q;
 
         let totient = ((&p - Mpz::one()) * (&q - Mpz::one())).modulus(&n);
