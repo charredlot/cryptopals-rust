@@ -36,6 +36,7 @@ impl PublicKey {
 
     pub fn encrypt_to_mpz(&self, msg: &[u8]) -> Mpz {
         let m = bytes_to_mpz(msg);
+        assert!(m < self.n);
         m.powm(&self.e, &self.n)
     }
 
