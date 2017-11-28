@@ -1,5 +1,8 @@
 extern crate gmp;
 
+use std::str;
+
+use base64::base64_decode;
 use self::gmp::mpz::Mpz;
 use util::{rand_bytes, bytes_to_mpz, mpz_bytes, mpz_print_padded};
 
@@ -203,7 +206,80 @@ fn pkcs1v15_test() {
     assert!(pub_key.pkcs1v15_sha1_bad_verify(msg.as_bytes(), &signature));
 }
 
+fn parity_test() {
+    let bit_len = 1024;
+    let (pub_key, priv_key) = loop {
+        let (pub_tmp, priv_tmp) = new_keypair(bit_len);
+        if pub_tmp.n.tstbit(0) {
+            // NB: this test relies on the modulus being odd, i.e. p or q is
+            // not 2. this is only likely to happen if we use a small bit_len
+            break (pub_tmp, priv_tmp);
+        }
+    };
+
+    println!("pub {:?}", pub_key);
+    println!("priv {:?}", priv_key);
+    let msg = base64_decode(concat!("VGhhdCdzIHdoeSBJIGZvdW5kIHlvdSBkb2",
+                                    "4ndCBwbGF5IGFyb3VuZCB3aXRoIHRoZSBG",
+                                    "dW5reSBDb2xkIE1lZGluYQ=="));
+    let ciphernum = pub_key.encrypt_to_mpz(&msg);
+    println!("ciphertext number {}", ciphernum);
+
+    // it's kind of like a binary search / decision tree
+    // we start with [0, n), assume n is odd
+    // even => [0, n / 2] since it's not > n and 2x is always even for any x
+    // odd => [(n / 2) + 1, n) since it wraps n so you subtract an odd num
+    // Repeat for times 4:
+    // if [0, n / 2] ->
+    //   even => 4x is in [0, n) => [0, n / 4]
+    //   odd => 4x is in [n, 2n) => [(n / 4) + 1, 2n / 4)
+    // if [(n / 2) + 1, n) ->
+    //   even => 4x is in [2n, 3n) => [(2n / 4) + 1, 3n / 4]
+    //   odd => 4x is in [3n, 4n) => [(3n / 4) + 1, 4n)
+    // TODO: there's some weirdness with off-by-ones and rounding dunno
+    // if it can be solved easily
+    let two = Mpz::one() + Mpz::one();
+    let mut prev_pow2 = Mpz::one();
+    let mut pow2 = two.clone();
+    let mut fraction = Mpz::zero();
+    while prev_pow2 <= pub_key.n {
+        let high = ((&fraction + Mpz::one()) * &pub_key.n) / &prev_pow2;
+        // XXX: this doesn't (and shouldn't?) print "hollywood style"?
+        // neither does decrypting it?
+        println!("high {:?}", String::from_utf8_lossy(&mpz_bytes(&high)));
+        let test = (&ciphernum *
+                    pow2.powm(&pub_key.e, &pub_key.n)).modulus(&pub_key.n);
+        if priv_key.is_plaintext_odd(&mpz_bytes(&test)) {
+            fraction = (&fraction * &two) + 1;
+        } else {
+            fraction = &fraction * &two;
+        }
+        prev_pow2 = pow2.clone();
+        pow2 = &prev_pow2 * &two;
+    }
+    let low = (&fraction * &pub_key.n) / &prev_pow2;
+    let high = ((&fraction + Mpz::one()) * &pub_key.n) / &prev_pow2;
+
+    println!("fraction {} / {} range ({} - {})",
+             fraction, prev_pow2, low, high);
+
+    // XXX: kind of hacky, not sure if we can do it better
+    let mut x = low;
+    while x <= high {
+        let guess_msg = mpz_bytes(&x);
+        if pub_key.encrypt_to_mpz(&guess_msg) == ciphernum {
+            assert_eq!(guess_msg, msg);
+            println!("rsa parity_test got \"{}\"\n{:?}",
+                     str::from_utf8(&msg).unwrap(), msg);
+            return;
+        }
+        x = x + Mpz::one();
+    }
+    panic!("rsa parity_test failed");
+}
+
 pub fn rsa_test() {
+    parity_test();
     rsa_keypair_test(32);
     rsa_keypair_test(512);
     rsa_keypair_test(2048);

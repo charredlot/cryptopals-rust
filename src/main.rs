@@ -14,8 +14,8 @@ use cryptopals::url::url_test;
 use cryptopals::xor::xor_test;
 
 fn main() {
-    dsa_test();
     rsa_test();
+    dsa_test();
     srp_test();
     dh_test();
     base64_test();

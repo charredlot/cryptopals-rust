@@ -104,6 +104,10 @@ impl PrivateKey {
         mpz_bytes(&self.decrypt_mpz(&m))
     }
 
+    pub fn is_plaintext_odd(&self, ciphertext: &[u8]) -> bool {
+        self.decrypt_mpz(&bytes_to_mpz(ciphertext)).tstbit(0)
+    }
+
     pub fn pkcs1v15_sha1_sign(&self, msg: &[u8]) -> Vec<u8> {
         let der = pkcs1v15_sha1_der_encode(msg);
 
