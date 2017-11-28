@@ -170,6 +170,8 @@ fn pkcs1v15_cube_root(der: &Mpz, der_len: usize) -> Option<Mpz> {
 fn pkcs1v15_e3_no_pad_check_test() {
     const BIT_LEN: usize = 1024;
     let (pub_key, priv_key) = new_keypair(BIT_LEN);
+    println!("pkcs1v15_e3_no_pad_check_test pub {:?} priv {:?}", pub_key,
+             priv_key);
     let plaintext = "hi mom";
     let der = &pkcs1v15_sha1_der_encode(plaintext.as_bytes());
     let der_num = bytes_to_mpz(&der);
